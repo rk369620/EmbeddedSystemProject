@@ -1,16 +1,45 @@
-
 import cv2
+import os
+import yt_dlp
 
 class VideoInput:
-    def __init__(self, source, width=None, height=None):
-        self.cap = cv2.VideoCapture(source)
-        if width and height:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    def __init__(self, source, temp_folder='test_videos'):
+
+        self.temp_folder = temp_folder
+        os.makedirs(temp_folder, exist_ok=True)
+
+
+        if isinstance(source, str) and source.startswith("http"):
+            self.file_path = self.download_video(source)
+        else:
+            self.file_path = source
+
+        self.cap = cv2.VideoCapture(self.file_path)
+
+    def download_video(self, url):
+        ydl_opts = {
+            'format': 'mp4',
+            'outplay': os.path.join(self.temp_folder, '%(title)s.%(ext)s')
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info_dict)
+
+        print(f"[VideoInput] Downloaded video to {filename}")
+        return filename
 
     def get_frame(self):
+
+        if not self.cap.isOpened():
+            return None
+
         ret, frame = self.cap.read()
-        return frame if ret else None
+        if not ret:
+            return None
+        return frame
 
     def release(self):
-        self.cap.release()
+        if self.cap:
+            self.cap.release()
