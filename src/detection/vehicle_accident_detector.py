@@ -1,33 +1,68 @@
 import cv2
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class VehicleAccidentDetector:
-    def __init__(self, threshold=25):
-        self.prev_gray = None
+    def __init__(
+        self,
+        threshold=25,
+        min_consecutive_frames=3,
+        cooldown_seconds=5
+    ):
         self.threshold = threshold
+        self.min_consecutive_frames = min_consecutive_frames
+        self.cooldown_seconds = cooldown_seconds
+
+        self.prev_gray = None
+        self.motion_counter = 0
+        self.last_alert_time = None
 
     def detect(self, frame):
+        gray = self._to_gray(frame)
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if self.prev_gray is None:
             self.prev_gray = gray
             return False, None
 
-        flow = cv2.calcOpticalFlowFarneback(
-            self.prev_gray, gray, None,
-            0.5, 3, 15, 3, 5, 1.2, 0
-        )
-
-
-        mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+        motion_score = self._compute_motion(self.prev_gray, gray)
         self.prev_gray = gray
 
-        if np.mean(mag) > self.threshold:
-            metadata = {
-                "timestamp": datetime.now().isoformat(),
-                "confidence": float(np.mean(mag))
-            }
-            return True, metadata
+        if motion_score > self.threshold:
+            self.motion_counter += 1
+        else:
+            self.motion_counter = 0
+
+        if self._should_trigger_alert():
+            self.last_alert_time = datetime.now()
+            self.motion_counter = 0
+            return True, self._build_metadata(motion_score)
 
         return False, None
+
+    def _to_gray(self, frame):
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    def _compute_motion(self, prev_gray, gray):
+        flow = cv2.calcOpticalFlowFarneback(
+            prev_gray, gray, None,
+            0.5, 3, 15, 3, 5, 1.2, 0
+        )
+        mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+        return float(np.mean(mag))
+
+    def _should_trigger_alert(self):
+        if self.motion_counter < self.min_consecutive_frames:
+            return False
+
+        if self.last_alert_time is None:
+            return True
+
+        return datetime.now() - self.last_alert_time > timedelta(
+            seconds=self.cooldown_seconds
+        )
+
+    def _build_metadata(self, confidence):
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "confidence": confidence
+        }
