@@ -1,0 +1,10 @@
+opencv-python
+numpy
+requests
+mediapipe
+torch
+torchvision
+onnxruntime
+pillow
+yt-dlp
+flask
