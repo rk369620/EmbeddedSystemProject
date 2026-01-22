@@ -32,7 +32,7 @@ class MonitorUI:
     def deactivate_buzzer(self):
 
         if self.communicator:
-            self.communicator.deactivate_buzzer()
+            self.communicator.send_alert("deactivate")
         self.update_status("Buzzer Deactivated", alert=False)
 
     def run(self):
