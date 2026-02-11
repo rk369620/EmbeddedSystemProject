@@ -1,7 +1,6 @@
 import time
+import cv2
 from threading import Thread
-import sys
-import os
 
 from src.video_input.video_input import VideoInput
 from src.detection.vehicle_accident_detector import VehicleAccidentDetector
@@ -9,54 +8,95 @@ from src.logging_module.logger import EventLogger
 from src.communication.communicator import Communicator
 from src.ui.interface import MonitorUI
 
-if len(sys.argv) > 1:
-    VIDEO_SOURCE = sys.argv[1]
-else:
-    VIDEO_SOURCE = 'test_videos/sample.mp4'
 
-LOG_FILE = 'events.json'
-RPI_IP = '192.168.1.100:5000'  # Replace with  Pi IP
-DETECTION_THRESHOLD = 25
-MIN_CONSECUTIVE_FRAMES = 3
-COOLDOWN_SECONDS = 5
-FALLBACK_VIDEO = 'test_videos/sample.mp4'
+VIDEO_PATH = "test_videos/without_accident1.mp4"
+USE_WEBCAM = False
 
-video_input = VideoInput(VIDEO_SOURCE, fallback_video=FALLBACK_VIDEO)
+LOG_FILE = "events.json"
+RPI_IP = "192.168.0.105:5000"
+
+THRESHOLD = 1.5
+MIN_FRAMES = 6
+COOLDOWN = 15
+ALERT_HOLD_SECONDS = 5
+
+video_input = VideoInput(source=VIDEO_PATH, use_webcam=USE_WEBCAM)
+
 detector = VehicleAccidentDetector(
-    threshold=DETECTION_THRESHOLD,
-    min_consecutive_frames=MIN_CONSECUTIVE_FRAMES,
-    cooldown_seconds=COOLDOWN_SECONDS
+    threshold=THRESHOLD,
+    min_consecutive_frames=MIN_FRAMES,
+    cooldown_seconds=COOLDOWN
 )
+
 logger = EventLogger(LOG_FILE)
 communicator = Communicator(RPI_IP)
-ui = MonitorUI(communicator=communicator)
+ui = MonitorUI(communicator)
+
+video_finished = False
+alert_active = False
+last_alert_time = None
 
 
 def detection_loop():
+    global video_finished, alert_active, last_alert_time
+
     while True:
         frame = video_input.get_frame()
         if frame is None:
-            print("[Main] End of video or cannot read frame")
+            print("[Main] Video finished")
+            communicator.send_alert("deactivate")
+            ui.update_status("Video Finished", alert=False)
+            video_finished = True
             break
 
-        detected, metadata = detector.detect(frame)
+        # Detect accidents
+        detected, meta = detector.detect(frame)
+
+        # Display video
+        cv2.imshow("Accident Detection", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            video_finished = True
+            break
+
+        current_time = time.time()
+
 
         if detected:
-            logger.log("Vehicle Accident", metadata)
 
-            communicator.send_alert("activate")
+            if not last_alert_time or current_time - last_alert_time > COOLDOWN:
+                print("[Main] 🚨 ACCIDENT DETECTED")
+                logger.log("Vehicle Accident", meta)
+                communicator.send_alert("activate")
+                ui.update_status("Vehicle Accident Detected!", alert=True)
 
-            ui.update_status("Vehicle Accident Detected!", alert=True)
-        else:
+                alert_active = True
+                last_alert_time = current_time
 
-            ui.update_status("System Idle", alert=False)
+        elif alert_active:
+            # Keep alert active for minimum hold time
+            if current_time - last_alert_time > ALERT_HOLD_SECONDS:
+                print("[Main] Alert hold finished → Deactivating")
+                communicator.send_alert("deactivate")
+                ui.update_status("System Idle", alert=False)
+                alert_active = False
 
-        # Small delay to reduce CPU usage
-        time.sleep(0.1)
+        time.sleep(0.03)
 
-detection_thread = Thread(target=detection_loop, daemon=True)
-detection_thread.start()
 
+    video_input.release()
+    cv2.destroyAllWindows()
+    print("[Main] Detection stopped")
+
+
+def check_exit():
+    if video_finished:
+        ui.root.after(0, ui.root.destroy)
+    else:
+        ui.root.after(200, check_exit)
+
+
+Thread(target=detection_loop, daemon=True).start()
+ui.root.after(200, check_exit)
 ui.run()
 
-video_input.release()
+print("[Main] Application exited cleanly")
