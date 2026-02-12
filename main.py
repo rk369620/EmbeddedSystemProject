@@ -1,6 +1,8 @@
 import time
-import cv2
 from threading import Thread
+import sys
+import os
+import cv2
 
 from src.video_input.video_input import VideoInput
 from src.detection.vehicle_accident_detector import VehicleAccidentDetector
@@ -8,17 +10,31 @@ from src.logging_module.logger import EventLogger
 from src.communication.communicator import Communicator
 from src.ui.interface import MonitorUI
 
-
-VIDEO_PATH = "test_videos/without_accident1.mp4"
+VIDEO_PATH = None
 USE_WEBCAM = False
+
+if len(sys.argv) > 1:
+    arg = sys.argv[1].lower()
+    if arg == "--webcam":
+        USE_WEBCAM = True
+
+    elif arg == "--video" and len(sys.argv) > 2:
+        VIDEO_PATH = sys.argv[2]
+    else:
+        print("Invalid argument. Usage: --video <path> OR --webcam")
+        sys.exit(1)
+else:
+
+    VIDEO_PATH = 'test_videos/accident.mp4'
+
 
 LOG_FILE = "events.json"
 RPI_IP = "192.168.0.105:5000"
 
-THRESHOLD = 1.5
-MIN_FRAMES = 6
-COOLDOWN = 15
-ALERT_HOLD_SECONDS = 5
+THRESHOLD = 2
+MIN_FRAMES = 3
+COOLDOWN = 5
+ALERT_HOLD_SECONDS = 8
 
 video_input = VideoInput(source=VIDEO_PATH, use_webcam=USE_WEBCAM)
 
